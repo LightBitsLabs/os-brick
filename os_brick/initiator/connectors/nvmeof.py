@@ -256,6 +256,116 @@ class NVMeOFConnector(base.BaseLinuxConnector):
 
         return ret_val
 
+    def _nvme_connect_multipath(self, connection_properties):
+        """Discover and attach the volume to multiple controllers.
+
+        Handle multipath flow where the initiator need to connect to multiple
+        NVMe controllers in order to consume the block-device.
+
+        :param connection_properties: The dictionary that describes all
+                                      of the target volume attributes.
+               connection_properties must include:
+               volume_nguid - volume uuid we want to connect to.
+               host_nqn - initiator nqn.
+               targets - a list of targets to connect to, each target
+                         contains the following information:
+
+                    nqn - NVMe subsystem name to the volume to be connected
+                    target_port - NVMe target port that hosts the nqn subsystem
+                    target_portal - NVMe target ip that hosts the nqn subsystem
+                    transport_type - one of (tcp, rdma)
+        :type connection_properties: dict
+        :returns: dict
+
+        Example input value:
+
+        .. code-block:: json
+
+            {
+                "driver_volume_type": "nvmeof",
+                "data":
+                {
+                    "volume_nguid": "54613aa8-784c-11ec-b15e-83cb57984331",
+                    "host_nqn": "nqn.2014-08.org.nvmexpress:NVMf:uuid:2",
+                    "targets": [
+                        {
+                            "target_portal": "1.1.1.1",
+                            "target_port": 4420,
+                            "nqn": "nqn.2014-08.org.nvmexpress:NVMf:uuid:1",
+                            "transport_type": "tcp"
+                        },
+                        {
+                            "target_portal": "1.1.1.2",
+                            "target_port": 4420,
+                            "nqn": "nqn.2014-08.org.nvmexpress:NVMf:uuid:1",
+                            "transport_type": "tcp"
+                        }
+                    ]
+                }
+            }
+        """
+        volume_nguid = connection_properties.get('volume_nguid')
+        if volume_nguid:
+            raise exception.InvalidParameterValue(
+                message="volume_nguid must be provided")
+        host_nqn = connection_properties.get('host_nqn')
+        if host_nqn:
+            raise exception.InvalidParameterValue(
+                message="`host_nqn` must be provided")
+        targets = connection_properties.get("targets", None)
+        if targets is None or not isinstance(targets, list) or not targets:
+            raise exception.InvalidParameterValue(
+                message="`targets` must be provided and should not be empty")
+
+        for props in targets:
+            if not props.get('target_portal', None):
+                raise exception.InvalidParameterValue(
+                    message="`target_portal` must be provided")
+            if not props.get('target_port', None):
+                raise exception.InvalidParameterValue(
+                    message="`target_port` must be provided")
+            if not props.get('nqn', None):
+                raise exception.InvalidParameterValue(
+                    message="`nqn` must be provided")
+            if not props.get('transport_type', None):
+                raise exception.InvalidParameterValue(
+                    message="`transport_type` must be provided")
+        transport_types = (element["transport_type"] == \
+            targets[0]["transport_type"] for element in targets)
+        if not all(transport_types):
+            raise exception.InvalidParameterValue(
+                message="all `transport_type` values must be the same")
+
+        for target in targets:
+            conn_nqn = target['nqn']
+            target_portal = target['target_portal']
+            port = target['target_port']
+            nvme_transport_type = target['transport_type']
+            cmd = [
+                'nvme', 'connect',
+                '-t', nvme_transport_type,
+                '-n', conn_nqn,
+                '-a', target_portal,
+                '-s', port]
+            if host_nqn:
+                cmd.extend(['-q', host_nqn])
+
+            self._try_connect_nvme(cmd)
+
+        try:
+            self._wait_for_blk(nvme_transport_type, conn_nqn,
+                               target_portal, port)
+        except exception.NotFound:
+            LOG.error("Waiting for nvme failed")
+            raise exception.NotFound(message="nvme connect: NVMe device "
+                                             "not found")
+        path = self._get_device_path_by_nguid(volume_nguid)
+        device_info = {'type': 'block',
+                       'path': path}
+        LOG.debug("NVMe device to be connected to is %(path)s",
+                  {'path': path})
+        return device_info
+
     @staticmethod
     def _filter_nvme_devices(current_nvme_devices, nvme_controller):
         LOG.debug("Filter NVMe devices belonging to controller "
@@ -332,6 +442,9 @@ class NVMeOFConnector(base.BaseLinuxConnector):
         """
         if connection_properties.get('vol_uuid'):  # compatibility
             return self._connect_volume_replicated(connection_properties)
+
+        if connection_properties.get('targets'):  # compatibility
+            return self._nvme_connect_multipath(connection_properties)
 
         current_nvme_devices = self._get_nvme_devices()
         device_info = {'type': 'block'}
