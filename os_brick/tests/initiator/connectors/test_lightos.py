@@ -18,8 +18,6 @@ import queue
 from unittest import mock
 from unittest.mock import mock_open
 
-from oslo_concurrency import processutils as putils
-
 from os_brick import exception
 from os_brick.initiator.connectors import lightos
 from os_brick.privileged import lightos as priv_lightos
@@ -191,7 +189,8 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
 
     @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
                        return_value="/dev/nvme0n1")
-    @mock.patch("builtins.open", new_callable=mock_open, read_data=f"{str(NUM_BLOCKS_IN_GIB)}\n")
+    @mock.patch("builtins.open", new_callable=mock_open,
+                read_data=f"{str(NUM_BLOCKS_IN_GIB)}\n")
     def test_extend_volume(self, mock_execute, m_open):
         connection_properties = {'uuid': FAKE_VOLUME_UUID}
         self.assertEqual(self.connector.extend_volume(connection_properties),
@@ -224,3 +223,11 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
     def test_check_device_exists_using_dev_lnk_false(self):
         self.assertIsNone(self.connector._check_device_exists_using_dev_lnk(
             FAKE_VOLUME_UUID))
+
+    @mock.patch.object(glob, "glob", return_value=['/path/nvme0n1/wwid'])
+    @mock.patch("builtins.open", new_callable=mock_open,
+                read_data=f"uuid.{FAKE_VOLUME_UUID}\n")
+    def test_check_device_exists_reading_block_class(self, mock_glob, m_open):
+        found_dev = self.connector._check_device_exists_reading_block_class(
+            FAKE_VOLUME_UUID)
+        self.assertEqual("/dev/nvme0n1", found_dev)
