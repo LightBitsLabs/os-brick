@@ -16,6 +16,7 @@ import glob
 import http.client
 import queue
 from unittest import mock
+from unittest.mock import mock_open
 
 from oslo_concurrency import processutils as putils
 
@@ -178,10 +179,10 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         self.connector.disconnect_volume(connection_properties, None)
         mock_disconnect.assert_called_once_with(connection_properties)
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=[("/dev/nvme0n1", None),
-                                    (NUM_BLOCKS_IN_GIB, None)])
-    def test_extend_volume(self, mock_execute):
+    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
+                       return_value="/dev/nvme0n1")
+    @mock.patch("builtins.open", new_callable=mock_open, read_data=f"{str(NUM_BLOCKS_IN_GIB)}\n")
+    def test_extend_volume(self, mock_execute, m_open):
         connection_properties = {'uuid': FAKE_VOLUME_UUID}
         self.assertEqual(self.connector.extend_volume(connection_properties),
                          NUM_BLOCKS_IN_GIB * BLOCK_SIZE)
