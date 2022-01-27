@@ -133,10 +133,10 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
     def test_dsc_disconnect_volume_succeed(self, mock_priv_lightos):
         self.connector.dsc_disconnect_volume(self._get_connection_info())
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=putils.ProcessExecutionError)
+    @mock.patch.object(priv_lightos, 'delete_dsc_file',
+                       side_effect=Exception("failed to delete file"))
     def test_dsc_disconnect_volume_failure(self, execute_mock):
-        self.assertRaises(putils.ProcessExecutionError,
+        self.assertRaises(Exception,
                           self.connector.dsc_disconnect_volume,
                           self._get_connection_info())
 
