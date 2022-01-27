@@ -1,4 +1,4 @@
-# Copyright (C) 2016-2020 Lightbits Labs Ltd.
+# Copyright (C) 2016-2022 Lightbits Labs Ltd.
 # Copyright (C) 2020 Intel Corporation
 # All Rights Reserved.
 #
@@ -312,7 +312,7 @@ class LightOSConnector(base.BaseLinuxConnector):
         uuid = connection_properties['uuid']
         LOG.debug('LIGHTOS: disconnect_volume called for volume %s', uuid)
         self.dsc_disconnect_volume(connection_properties)
-         # bookkeeping lightos connections - delete connection
+        # bookkeeping lightos connections - delete connection
         if self.message_queue:
             self.message_queue.put(('delete', connection_properties))
 

@@ -1,4 +1,4 @@
-# Copyright (C) 2016-2020 Lightbits Labs Ltd.
+# Copyright (C) 2016-2022 Lightbits Labs Ltd.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
