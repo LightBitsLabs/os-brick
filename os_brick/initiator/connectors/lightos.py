@@ -188,7 +188,7 @@ class LightOSConnector(base.BaseLinuxConnector):
         path = connection_properties['device_path']
         return [path]
 
-    def _check_device_exists_using_dev_lnk(uuid):
+    def _check_device_exists_using_dev_lnk(self, uuid):
         lnk_path = f"/dev/disk/by-id/nvme-uuid.{uuid}"
         if os.path.exists(lnk_path):
             devname = os.path.realpath(lnk_path)
@@ -199,7 +199,7 @@ class LightOSConnector(base.BaseLinuxConnector):
             return devname
         return None
 
-    def _check_device_exists_reading_block_class(uuid):
+    def _check_device_exists_reading_block_class(self, uuid):
         file_path = "/sys/class/block/*/wwid"
         wwid = "uuid." + uuid
         for match_path in glob.glob(file_path):
