@@ -212,3 +212,15 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         message_queue.put(("add", connection))
         self.connector.monitor_message_queue(message_queue, lightos_db)
         self.assertEqual(len(lightos_db), 1)
+
+    @mock.patch.object(lightos.os.path, 'exists', return_value=True)
+    @mock.patch.object(lightos.os.path, 'realpath', return_value="/dev/nvme0n1 ")
+    def test_check_device_exists_using_dev_lnk_succeed(self, mock_path_exists,
+                                                       mock_realpath):
+        found_dev = self.connector._check_device_exists_using_dev_lnk(
+            FAKE_VOLUME_UUID)
+        self.assertEqual("/dev/nvme0n1", found_dev)
+
+    def test_check_device_exists_using_dev_lnk_false(self):
+        self.assertIsNone(self.connector._check_device_exists_using_dev_lnk(
+            FAKE_VOLUME_UUID))
