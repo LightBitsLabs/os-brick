@@ -195,7 +195,7 @@ class LightOSConnector(base.BaseLinuxConnector):
             if devname.startswith("/dev/nvme"):
                 devname = devname.strip()
                 LOG.info("LIGHTOS: devpath %s detected for uuid %s",
-                        devname, uuid)
+                         devname, uuid)
                 return devname
         return None
 

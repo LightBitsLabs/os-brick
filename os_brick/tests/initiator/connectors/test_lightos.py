@@ -138,9 +138,9 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         self.connector.dsc_disconnect_volume(self._get_connection_info())
 
     @mock.patch.object(priv_lightos, 'delete_dsc_file',
-                       side_effect=Exception("failed to delete file"))
+                       side_effect=OSError("failed to delete file"))
     def test_dsc_disconnect_volume_failure(self, execute_mock):
-        self.assertRaises(Exception,
+        self.assertRaises(OSError,
                           self.connector.dsc_disconnect_volume,
                           self._get_connection_info())
 
@@ -213,7 +213,8 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         self.assertEqual(len(lightos_db), 1)
 
     @mock.patch.object(lightos.os.path, 'exists', return_value=True)
-    @mock.patch.object(lightos.os.path, 'realpath', return_value="/dev/nvme0n1 ")
+    @mock.patch.object(lightos.os.path, 'realpath',
+                       return_value="/dev/nvme0n1")
     def test_check_device_exists_using_dev_lnk_succeed(self, mock_path_exists,
                                                        mock_realpath):
         found_dev = self.connector._check_device_exists_using_dev_lnk(
