@@ -240,23 +240,6 @@ class LightOSConnector(base.BaseLinuxConnector):
             time.sleep(1)
         return None
 
-    def _verify_device_removed(self, uuid):
-        endtime = time.time() + self.WAIT_DEVICE_TIMEOUT
-        device_found_by_lnk = False
-        device_found_by_block_class = False
-        while time.time() < endtime:
-            try:
-                device_found_by_lnk = (
-                    self._check_device_exists_using_dev_lnk(uuid))
-            except Exception as e:
-                LOG.debug(f'LIGHTOS: {e}')
-            device_found_by_block_class = (
-                self._check_device_exists_reading_block_class(uuid))
-            if not device_found_by_block_class and not device_found_by_lnk:
-                return True
-            time.sleep(1)
-        return False
-
     def _get_size_by_uuid(self, uuid):
         devpath = self._get_device_by_uuid(uuid)
         devname = devpath.split("/")[-1]
@@ -329,10 +312,7 @@ class LightOSConnector(base.BaseLinuxConnector):
         uuid = connection_properties['uuid']
         LOG.debug('LIGHTOS: disconnect_volume called for volume %s', uuid)
         self.dsc_disconnect_volume(connection_properties)
-        if not self._verify_device_removed(uuid):
-            msg = _("LIGHTOS failed to remove Device with uuid %s" % uuid)
-            raise exception.BrickException(message=msg)
-        # bookkeeping lightos connections - delete connection
+         # bookkeeping lightos connections - delete connection
         if self.message_queue:
             self.message_queue.put(('delete', connection_properties))
 
