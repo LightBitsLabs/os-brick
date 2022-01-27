@@ -138,27 +138,15 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
                          "/dev/nvme0n1")
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=[("/dev/not_nvme", None),
-                                    putils.ProcessExecutionError,
-                                    (FAKE_VOLUME_UUID, None),
-                                    ("nvme0c0n1", None),
-                                    (f"uuid.{FAKE_VOLUME_UUID}", None)])
-    @mock.patch.object(glob, "glob",
-                       return_value=["/sys/class/block/nvme0n1/size",
-                                     "/sys/class/block/nvme0n1/uuid"])
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_using_dev_lnk',
+                       side_effect=[None, False, "/dev/nvme0n1"])
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_reading_block_class',
+                       side_effect=[None, False, "/dev/nvme0n1"])
     def test_get_device_by_uuid_many_attempts(self, execute_mock, glob_mock):
         self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
                          '/dev/nvme0n1')
-
-    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
-                       return_value="/dev/nvme/nvme0n1")
-    @mock.patch.object(lightos.LightOSConnector,
-                       '_execute',
-                       return_value=(10, None))
-    def test_get_size_by_uuid(self, mock_uuid, mock_execute):
-        size = self.connector._get_size_by_uuid("123")
-        self.assertEqual(size, 10 * 512)
 
     @mock.patch.object(lightos.LightOSConnector, 'dsc_connect_volume',
                        return_value=None)
