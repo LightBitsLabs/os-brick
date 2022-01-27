@@ -21,6 +21,7 @@ from unittest.mock import mock_open
 from oslo_concurrency import processutils as putils
 
 from os_brick.initiator.connectors import lightos
+from os_brick.privileged import lightos as priv_lightos
 from os_brick.tests.initiator import test_connector
 
 FAKE_NQN = "nqn.fake.qnq"
@@ -122,7 +123,8 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
                           self.connector.dsc_do_connect_volume,
                           self._get_connection_info())
 
-    def test_dsc_disconnect_volume_succeed(self):
+    @mock.patch.object(priv_lightos, 'delete_dsc_file', return_value=True)
+    def test_dsc_disconnect_volume_succeed(self, mock_priv_lightos):
         self.connector.dsc_disconnect_volume(self._get_connection_info())
 
     @mock.patch.object(lightos.LightOSConnector, '_execute',
