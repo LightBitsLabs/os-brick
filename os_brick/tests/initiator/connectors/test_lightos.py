@@ -134,9 +134,17 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
                           self.connector.dsc_disconnect_volume,
                           self._get_connection_info())
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       return_value=("/dev/nvme0n1", None))
-    def test_get_device_by_uuid_succeed(self, execute_mock):
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_using_dev_lnk',
+                       return_value=("/dev/nvme0n1"))
+    def test_get_device_by_uuid_succeed_with_link(self, execute_mock):
+        self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
+                         "/dev/nvme0n1")
+
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_reading_block_class',
+                       return_value=("/dev/nvme0n1"))
+    def test_get_device_by_uuid_succeed_with_block_class(self, execute_mock):
         self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
                          "/dev/nvme0n1")
 
