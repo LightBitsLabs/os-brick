@@ -192,11 +192,11 @@ class LightOSConnector(base.BaseLinuxConnector):
         lnk_path = f"/dev/disk/by-id/nvme-uuid.{uuid}"
         if os.path.exists(lnk_path):
             devname = os.path.realpath(lnk_path)
-        if devname.startswith("/dev/nvme"):
-            devname = devname.strip()
-            LOG.info("LIGHTOS: devpath %s detected for uuid %s",
-                     devname, uuid)
-            return devname
+            if devname.startswith("/dev/nvme"):
+                devname = devname.strip()
+                LOG.info("LIGHTOS: devpath %s detected for uuid %s",
+                        devname, uuid)
+                return devname
         return None
 
     def _check_device_exists_reading_block_class(self, uuid):
