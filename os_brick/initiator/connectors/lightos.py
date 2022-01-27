@@ -77,12 +77,12 @@ class LightOSConnector(base.BaseLinuxConnector):
             LOG.debug('LIGHTOS: did not find dsc, continuing anyway.')
 
         if hostnqn:
-            LOG.info("LIGHTOS: finally hostnqn: %s dsc: %s",
+            LOG.debug("LIGHTOS: finally hostnqn: %s dsc: %s",
                      hostnqn, found_dsc)
             props['hostnqn'] = hostnqn
             props['found_dsc'] = found_dsc
         else:
-            LOG.warning('LIGHTOS: no hostnqn found.')
+            LOG.debug('LIGHTOS: no hostnqn found.')
 
         return props
 
