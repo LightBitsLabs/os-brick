@@ -20,6 +20,7 @@ from unittest.mock import mock_open
 
 from os_brick import exception
 from os_brick.initiator.connectors import lightos
+from os_brick.initiator import linuxscsi
 from os_brick.privileged import lightos as priv_lightos
 from os_brick.tests.initiator import test_connector
 
@@ -180,12 +181,16 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
 
         self.assertEqual(expected_device_info, device_info)
 
+    @mock.patch.object(linuxscsi.LinuxSCSI, 'flush_device_io', autospec=True)    
+    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
+                       return_value="/dev/nvme0n1")
     @mock.patch.object(lightos.LightOSConnector, 'dsc_disconnect_volume')
-    def test_disconnect_volume(self, mock_disconnect):
+    def test_disconnect_volume(self, mock_disconnect, mock_uuid, mock_flush):
         connection_properties = {"hostnqn": FAKE_NQN, "found_dsc": True,
                                  "uuid": "123"}
         self.connector.disconnect_volume(connection_properties, None)
         mock_disconnect.assert_called_once_with(connection_properties)
+        mock_flush.assert_called_once_with(mock.ANY, "/dev/nvme0n1")
 
     @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
                        return_value="/dev/nvme0n1")
