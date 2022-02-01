@@ -1,4 +1,4 @@
-# Copyright (C) 2016-2020 Lightbits Labs Ltd.
+# Copyright (C) 2016-2022 Lightbits Labs Ltd.
 # Copyright (C) 2020 Intel Corporation
 # All Rights Reserved.
 #
@@ -18,17 +18,16 @@ import glob
 import http.client
 import os
 import re
-import shlex
 import tempfile
 import time
 
 from oslo_concurrency import lockutils
-from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
 
 from os_brick import exception
 from os_brick.i18n import _
 from os_brick.initiator.connectors import base
+from os_brick.privileged import lightos as priv_lightos
 from os_brick.privileged import nvmeof as priv_nvme
 from os_brick import utils
 
@@ -45,12 +44,14 @@ nvmec_match = re.compile(nvmec_pattern)
 class LightOSConnector(base.BaseLinuxConnector):
     """Connector class to attach/detach LightOS volumes using NVMe/TCP."""
 
+    WAIT_DEVICE_TIMEOUT = 60
+
     def __init__(self,
                  root_helper,
-                 message_queue=None,
-                 device_scan_attempts=DEVICE_SCAN_ATTEMPTS_DEFAULT,
                  driver=None,
                  execute=None,
+                 device_scan_attempts=DEVICE_SCAN_ATTEMPTS_DEFAULT,
+                 message_queue=None,
                  *args,
                  **kwargs):
         super(LightOSConnector, self).__init__(
@@ -76,12 +77,12 @@ class LightOSConnector(base.BaseLinuxConnector):
             LOG.debug('LIGHTOS: did not find dsc, continuing anyway.')
 
         if hostnqn:
-            LOG.info("LIGHTOS: finally hostnqn: %s dsc: %s",
-                     hostnqn, found_dsc)
+            LOG.debug("LIGHTOS: finally hostnqn: %s dsc: %s",
+                      hostnqn, found_dsc)
             props['hostnqn'] = hostnqn
             props['found_dsc'] = found_dsc
         else:
-            LOG.warning('LIGHTOS: no hostnqn found.')
+            LOG.debug('LIGHTOS: no hostnqn found.')
 
         return props
 
@@ -95,7 +96,7 @@ class LightOSConnector(base.BaseLinuxConnector):
             resp = conn.getresponse()
             return 'found' if resp.status == http.client.OK else ''
         except Exception as e:
-            LOG.debug(e)
+            LOG.debug(f'LIGHTOS: {e}')
             out = ''
         return out
 
@@ -103,10 +104,9 @@ class LightOSConnector(base.BaseLinuxConnector):
         return not os.path.isfile(self.dsc_file_name(connection_info['uuid']))
 
     def dsc_connect_volume(self, connection_info):
-        if self.dsc_need_connect(connection_info):
-            self.dsc_do_connect_volume(connection_info)
+        if not self.dsc_need_connect(connection_info):
+            return
 
-    def dsc_do_connect_volume(self, connection_info):
         subsysnqn = connection_info['nqn']
         uuid = connection_info['uuid']
         hostnqn = self.get_hostnqn()
@@ -122,21 +122,19 @@ class LightOSConnector(base.BaseLinuxConnector):
             dscfile.flush()
             try:
                 dest_name = self.dsc_file_name(uuid)
-                cmd = shlex.split('mv {} {}'.format(dscfile.name, dest_name))
-                (out, err) = self._execute(*cmd, root_helper=self._root_helper,
-                                           run_as_root=True)
-            except putils.ProcessExecutionError as e:
-                LOG.warning("LIGHTOS: Failed to run command {}".format(cmd))
+                priv_lightos.move_dsc_file(dscfile.name, dest_name)
+            except Exception as e:
+                LOG.warning(
+                    "LIGHTOS: Failed to create dsc file for connection with"
+                    f" uuid:{uuid}")
                 raise e
 
     def dsc_disconnect_volume(self, connection_info):
         uuid = connection_info['uuid']
         try:
-            cmd = shlex.split('mv -f {} /tmp'.format(self.dsc_file_name(uuid)))
-            (out, err) = self._execute(*cmd, root_helper=self._root_helper,
-                                       run_as_root=True)
-        except putils.ProcessExecutionError as e:
-            LOG.warning("LIGHTOS: Failed to run command {}".format(cmd))
+            priv_lightos.delete_dsc_file(self.dsc_file_name(uuid))
+        except Exception as e:
+            LOG.warning("LIGHTOS: Failed delete dsc file uuid:{}".format(uuid))
             raise e
 
     def monitor_db(self, lightos_db):
@@ -163,6 +161,11 @@ class LightOSConnector(base.BaseLinuxConnector):
                 lightos_db[connection['uuid']] = connection
 
     def lightos_monitor(self, lightos_db, message_queue):
+        '''Bookkeeping lightos connections.
+
+        This is useful when the connector is comming up to a running node with
+        connected volumes already exists.
+        '''
         first_time = True
         while True:
             self.monitor_db(lightos_db)
@@ -185,48 +188,54 @@ class LightOSConnector(base.BaseLinuxConnector):
         path = connection_properties['device_path']
         return [path]
 
-    @utils.trace
-    def _get_device_by_uuid(self, uuid):
-        lnk_path = "%s%s" % ("/dev/disk/by-id/nvme-uuid.", uuid)
+    def _check_device_exists_using_dev_lnk(self, uuid):
+        lnk_path = f"/dev/disk/by-id/nvme-uuid.{uuid}"
+        if os.path.exists(lnk_path):
+            devname = os.path.realpath(lnk_path)
+            if devname.startswith("/dev/nvme"):
+                devname = devname.strip()
+                LOG.info("LIGHTOS: devpath %s detected for uuid %s",
+                         devname, uuid)
+                return devname
+        return None
+
+    def _check_device_exists_reading_block_class(self, uuid):
         file_path = "/sys/class/block/*/wwid"
         wwid = "uuid." + uuid
-        start = time.time()
-        while time.time() < start + 60:
-
+        for match_path in glob.glob(file_path):
             try:
-                devname, err = self._execute('readlink', '-eq', lnk_path,
-                                             run_as_root=True,
-                                             root_helper=self._root_helper)
-                if devname.startswith("/dev/nvme"):
-                    devname = devname.strip()
-                    LOG.info("LIGHTOS: devpath %s detected for uuid %s",
-                             devname, uuid)
-                    return devname
+                with open(match_path, "r") as f:
+                    match_wwid = f.readline()
+            except Exception:
+                LOG.warning("LIGHTOS: Failed to read file %s",
+                            match_path)
+                continue
+
+            if wwid != match_wwid.strip():
+                continue
+
+            # skip slave nvme devices, for example: nvme0c0n1
+            if nvmec_match.match(match_path.split("/")[-2]):
+                continue
+
+            LOG.info("LIGHTOS: matching uuid %s was found"
+                     " for device path %s" % (uuid, match_path))
+            return os.path.join("/dev", match_path.split("/")[-2])
+        return None
+
+    @utils.trace
+    def _get_device_by_uuid(self, uuid):
+        endtime = time.time() + self.WAIT_DEVICE_TIMEOUT
+        while time.time() < endtime:
+            try:
+                device = self._check_device_exists_using_dev_lnk(uuid)
+                if device:
+                    return device
             except Exception as e:
-                LOG.debug(e)
-
-            for match_path in glob.glob(file_path):
-                try:
-                    match_wwid, err = self._execute(
-                        'cat',
-                        match_path,
-                        run_as_root=True,
-                        root_helper=self._root_helper)
-                except putils.ProcessExecutionError:
-                    LOG.warning("LIGHTOS: Could not find the uuid at %s",
-                                match_path)
-                    continue
-
-                if wwid != match_wwid.strip():
-                    continue
-
-                # skip slave nvme devices, for example: nvme0c0n1
-                if nvmec_match.match(match_path.split("/")[-2]):
-                    continue
-
-                LOG.info("LIGHTOS: matching uuid %s was found"
-                         " for device path %s" % (uuid, match_path))
-                return os.path.join("/dev", match_path.split("/")[-2])
+                LOG.debug(f'LIGHTOS: {e}')
+            device = self._check_device_exists_reading_block_class(uuid)
+            if device:
+                return device
 
             time.sleep(1)
         return None
@@ -236,15 +245,13 @@ class LightOSConnector(base.BaseLinuxConnector):
         devname = devpath.split("/")[-1]
         try:
             size_path_name = os.path.join("/sys/class/block/", devname, "size")
-            size_blks, err = self._execute('cat', size_path_name,
-                                           run_as_root=True,
-                                           root_helper=self._root_helper)
+            with open(size_path_name, "r") as f:
+                size_blks = f.read().strip()
             bytesize = int(size_blks) * 512
             return bytesize
-        except putils.ProcessExecutionError:
+        except Exception:
             LOG.warning("LIGHTOS: Could not find the size at for"
-                        " uuid %s in %s",
-                        uuid, devpath)
+                        " uuid %s in %s", uuid, devpath)
             return None
 
     @utils.trace
@@ -271,10 +278,12 @@ class LightOSConnector(base.BaseLinuxConnector):
         device_path = self._get_device_by_uuid(uuid)
         if not device_path:
             msg = _("Device with uuid %s did not show up" % uuid)
+            priv_lightos.delete_dsc_file(self.dsc_file_name(uuid))
             raise exception.BrickException(message=msg)
 
         device_info['path'] = device_path
 
+        # bookkeeping lightos connections - add connection
         if self.message_queue:
             self.message_queue.put(('add', connection_properties))
 
@@ -303,7 +312,7 @@ class LightOSConnector(base.BaseLinuxConnector):
         uuid = connection_properties['uuid']
         LOG.debug('LIGHTOS: disconnect_volume called for volume %s', uuid)
         self.dsc_disconnect_volume(connection_properties)
-
+        # bookkeeping lightos connections - delete connection
         if self.message_queue:
             self.message_queue.put(('delete', connection_properties))
 
