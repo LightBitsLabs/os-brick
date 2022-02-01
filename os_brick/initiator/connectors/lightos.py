@@ -310,6 +310,10 @@ class LightOSConnector(base.BaseLinuxConnector):
                               the operation.  Default is False.
         :type ignore_errors: bool
         """
+        if force:
+            # if operator want to force detach - we just return and cinder
+            # driver will terminate the connection by updating the ACL
+            return
         uuid = connection_properties['uuid']
         LOG.debug('LIGHTOS: disconnect_volume called for volume %s', uuid)
         device_path = self._get_device_by_uuid(uuid)
