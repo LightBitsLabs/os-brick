@@ -123,19 +123,19 @@ class LightOSConnector(base.BaseLinuxConnector):
             try:
                 dest_name = self.dsc_file_name(uuid)
                 priv_lightos.move_dsc_file(dscfile.name, dest_name)
-            except Exception as e:
+            except Exception:
                 LOG.warning(
                     "LIGHTOS: Failed to create dsc file for connection with"
                     f" uuid:{uuid}")
-                raise e
+                raise
 
     def dsc_disconnect_volume(self, connection_info):
         uuid = connection_info['uuid']
         try:
             priv_lightos.delete_dsc_file(self.dsc_file_name(uuid))
-        except Exception as e:
+        except Exception:
             LOG.warning("LIGHTOS: Failed delete dsc file uuid:{}".format(uuid))
-            raise e
+            raise
 
     def monitor_db(self, lightos_db):
         for connection_info in lightos_db.values():
