@@ -22,6 +22,7 @@ import tempfile
 import time
 
 from oslo_concurrency import lockutils
+from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
 
 from os_brick import exception
@@ -123,19 +124,19 @@ class LightOSConnector(base.BaseLinuxConnector):
             try:
                 dest_name = self.dsc_file_name(uuid)
                 priv_lightos.move_dsc_file(dscfile.name, dest_name)
-            except Exception as e:
+            except Exception:
                 LOG.warning(
                     "LIGHTOS: Failed to create dsc file for connection with"
                     f" uuid:{uuid}")
-                raise e
+                raise
 
     def dsc_disconnect_volume(self, connection_info):
         uuid = connection_info['uuid']
         try:
             priv_lightos.delete_dsc_file(self.dsc_file_name(uuid))
-        except Exception as e:
+        except Exception:
             LOG.warning("LIGHTOS: Failed delete dsc file uuid:{}".format(uuid))
-            raise e
+            raise
 
     def monitor_db(self, lightos_db):
         for connection_info in lightos_db.values():
@@ -165,6 +166,7 @@ class LightOSConnector(base.BaseLinuxConnector):
 
         This is useful when the connector is comming up to a running node with
         connected volumes already exists.
+        This is used in the Nova driver to restore connections after reboot
         '''
         first_time = True
         while True:
@@ -193,7 +195,6 @@ class LightOSConnector(base.BaseLinuxConnector):
         if os.path.exists(lnk_path):
             devname = os.path.realpath(lnk_path)
             if devname.startswith("/dev/nvme"):
-                devname = devname.strip()
                 LOG.info("LIGHTOS: devpath %s detected for uuid %s",
                          devname, uuid)
                 return devname
@@ -219,7 +220,7 @@ class LightOSConnector(base.BaseLinuxConnector):
                 continue
 
             LOG.info("LIGHTOS: matching uuid %s was found"
-                     " for device path %s" % (uuid, match_path))
+                     " for device path %s", uuid, match_path)
             return os.path.join("/dev", match_path.split("/")[-2])
         return None
 
@@ -309,8 +310,19 @@ class LightOSConnector(base.BaseLinuxConnector):
                               the operation.  Default is False.
         :type ignore_errors: bool
         """
+        if force:
+            # if operator want to force detach - we just return and cinder
+            # driver will terminate the connection by updating the ACL
+            return
         uuid = connection_properties['uuid']
         LOG.debug('LIGHTOS: disconnect_volume called for volume %s', uuid)
+        device_path = self._get_device_by_uuid(uuid)
+        try:
+            if device_path:
+                self._linuxscsi.flush_device_io(device_path)
+        except putils.ProcessExecutionError:
+            if not ignore_errors:
+                raise
         self.dsc_disconnect_volume(connection_properties)
         # bookkeeping lightos connections - delete connection
         if self.message_queue:
