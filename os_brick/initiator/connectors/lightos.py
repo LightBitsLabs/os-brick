@@ -165,6 +165,7 @@ class LightOSConnector(base.BaseLinuxConnector):
 
         This is useful when the connector is comming up to a running node with
         connected volumes already exists.
+        This is used in the Nova driver to restore connections after reboot
         '''
         first_time = True
         while True:
