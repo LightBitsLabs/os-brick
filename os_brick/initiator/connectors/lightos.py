@@ -219,7 +219,7 @@ class LightOSConnector(base.BaseLinuxConnector):
                 continue
 
             LOG.info("LIGHTOS: matching uuid %s was found"
-                     " for device path %s" % (uuid, match_path))
+                     " for device path %s", uuid, match_path)
             return os.path.join("/dev", match_path.split("/")[-2])
         return None
 
