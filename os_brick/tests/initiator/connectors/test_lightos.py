@@ -16,10 +16,11 @@ import glob
 import http.client
 import queue
 from unittest import mock
+from unittest.mock import mock_open
 
-from oslo_concurrency import processutils as putils
-
+from os_brick import exception
 from os_brick.initiator.connectors import lightos
+from os_brick.privileged import lightos as priv_lightos
 from os_brick.tests.initiator import test_connector
 
 FAKE_NQN = "nqn.fake.qnq"
@@ -109,55 +110,63 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
 
     @mock.patch.object(lightos.LightOSConnector, 'get_hostnqn',
                        return_value=FAKE_NQN)
-    def test_dsc_do_connect_volume_succeed(self, mock_nqn):
-        self.connector.dsc_do_connect_volume(self._get_connection_info())
+    @mock.patch.object(lightos.priv_lightos, 'move_dsc_file',
+                       return_value="/etc/discovery_client/discovery.d/v0")
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_using_dev_lnk',
+                       return_value="/dev/nvme0n1")
+    def test_connect_volume_succeed(self, mock_nqn, mock_move_file,
+                                    mock_check_device):
+        self.connector.connect_volume(self._get_connection_info())
 
     @mock.patch.object(lightos.LightOSConnector, 'get_hostnqn',
                        return_value=FAKE_NQN)
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=putils.ProcessExecutionError)
-    def test_dsc_do_connect_volume_failure(self, mock_nqn, execute_mock):
-        self.assertRaises(putils.ProcessExecutionError,
-                          self.connector.dsc_do_connect_volume,
+    @mock.patch.object(lightos.priv_lightos, 'move_dsc_file',
+                       return_value="/etc/discovery_client/discovery.d/v0")
+    @mock.patch.object(lightos.priv_lightos, 'delete_dsc_file',
+                       return_value=None)
+    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
+                       return_value=None)
+    def test_connect_volume_failure(self, mock_nqn, mock_move_file,
+                                    mock_delete_file, mock_get_device):
+        self.assertRaises(exception.BrickException,
+                          self.connector.connect_volume,
                           self._get_connection_info())
 
-    def test_dsc_disconnect_volume_succeed(self):
+    @mock.patch.object(priv_lightos, 'delete_dsc_file', return_value=True)
+    def test_dsc_disconnect_volume_succeed(self, mock_priv_lightos):
         self.connector.dsc_disconnect_volume(self._get_connection_info())
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=putils.ProcessExecutionError)
+    @mock.patch.object(priv_lightos, 'delete_dsc_file',
+                       side_effect=OSError("failed to delete file"))
     def test_dsc_disconnect_volume_failure(self, execute_mock):
-        self.assertRaises(putils.ProcessExecutionError,
+        self.assertRaises(OSError,
                           self.connector.dsc_disconnect_volume,
                           self._get_connection_info())
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       return_value=("/dev/nvme0n1", None))
-    def test_get_device_by_uuid_succeed(self, execute_mock):
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_using_dev_lnk',
+                       return_value=("/dev/nvme0n1"))
+    def test_get_device_by_uuid_succeed_with_link(self, execute_mock):
         self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
                          "/dev/nvme0n1")
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=[("/dev/not_nvme", None),
-                                    putils.ProcessExecutionError,
-                                    (FAKE_VOLUME_UUID, None),
-                                    ("nvme0c0n1", None),
-                                    (f"uuid.{FAKE_VOLUME_UUID}", None)])
-    @mock.patch.object(glob, "glob",
-                       return_value=["/sys/class/block/nvme0n1/size",
-                                     "/sys/class/block/nvme0n1/uuid"])
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_reading_block_class',
+                       return_value=("/dev/nvme0n1"))
+    def test_get_device_by_uuid_succeed_with_block_class(self, execute_mock):
+        self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
+                         "/dev/nvme0n1")
+
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_using_dev_lnk',
+                       side_effect=[None, False, "/dev/nvme0n1"])
+    @mock.patch.object(lightos.LightOSConnector,
+                       '_check_device_exists_reading_block_class',
+                       side_effect=[None, False, "/dev/nvme0n1"])
     def test_get_device_by_uuid_many_attempts(self, execute_mock, glob_mock):
         self.assertEqual(self.connector._get_device_by_uuid(FAKE_VOLUME_UUID),
                          '/dev/nvme0n1')
-
-    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
-                       return_value="/dev/nvme/nvme0n1")
-    @mock.patch.object(lightos.LightOSConnector,
-                       '_execute',
-                       return_value=(10, None))
-    def test_get_size_by_uuid(self, mock_uuid, mock_execute):
-        size = self.connector._get_size_by_uuid("123")
-        self.assertEqual(size, 10 * 512)
 
     @mock.patch.object(lightos.LightOSConnector, 'dsc_connect_volume',
                        return_value=None)
@@ -178,10 +187,11 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         self.connector.disconnect_volume(connection_properties, None)
         mock_disconnect.assert_called_once_with(connection_properties)
 
-    @mock.patch.object(lightos.LightOSConnector, '_execute',
-                       side_effect=[("/dev/nvme0n1", None),
-                                    (NUM_BLOCKS_IN_GIB, None)])
-    def test_extend_volume(self, mock_execute):
+    @mock.patch.object(lightos.LightOSConnector, '_get_device_by_uuid',
+                       return_value="/dev/nvme0n1")
+    @mock.patch("builtins.open", new_callable=mock_open,
+                read_data=f"{str(NUM_BLOCKS_IN_GIB)}\n")
+    def test_extend_volume(self, mock_execute, m_open):
         connection_properties = {'uuid': FAKE_VOLUME_UUID}
         self.assertEqual(self.connector.extend_volume(connection_properties),
                          NUM_BLOCKS_IN_GIB * BLOCK_SIZE)
@@ -201,3 +211,24 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
         message_queue.put(("add", connection))
         self.connector.monitor_message_queue(message_queue, lightos_db)
         self.assertEqual(len(lightos_db), 1)
+
+    @mock.patch.object(lightos.os.path, 'exists', return_value=True)
+    @mock.patch.object(lightos.os.path, 'realpath',
+                       return_value="/dev/nvme0n1")
+    def test_check_device_exists_using_dev_lnk_succeed(self, mock_path_exists,
+                                                       mock_realpath):
+        found_dev = self.connector._check_device_exists_using_dev_lnk(
+            FAKE_VOLUME_UUID)
+        self.assertEqual("/dev/nvme0n1", found_dev)
+
+    def test_check_device_exists_using_dev_lnk_false(self):
+        self.assertIsNone(self.connector._check_device_exists_using_dev_lnk(
+            FAKE_VOLUME_UUID))
+
+    @mock.patch.object(glob, "glob", return_value=['/path/nvme0n1/wwid'])
+    @mock.patch("builtins.open", new_callable=mock_open,
+                read_data=f"uuid.{FAKE_VOLUME_UUID}\n")
+    def test_check_device_exists_reading_block_class(self, mock_glob, m_open):
+        found_dev = self.connector._check_device_exists_reading_block_class(
+            FAKE_VOLUME_UUID)
+        self.assertEqual("/dev/nvme0n1", found_dev)
