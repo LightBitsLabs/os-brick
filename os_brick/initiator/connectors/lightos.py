@@ -30,7 +30,7 @@ from os_brick.i18n import _
 from os_brick.initiator.connectors import base
 from os_brick.privileged import lightos as priv_lightos
 from os_brick import utils
-
+import subprocess
 
 DEVICE_SCAN_ATTEMPTS_DEFAULT = 5
 DISCOVERY_CLIENT_PORT = 6060
@@ -63,6 +63,23 @@ class LightOSConnector(base.BaseLinuxConnector):
         self.DISCOVERY_DIR_PATH = '/etc/discovery-client/discovery.d/'
 
     @staticmethod
+    def get_ip_addresses():
+        ip_addresses = []
+        result = subprocess.check_output(['ip', 'addr']).decode('utf-8')
+        lines = result.split('\n')
+        for line in lines:
+          if 'inet ' in line:
+              parts = line.split()
+              ip_parts = parts[1]
+              ip_parts = ip_parts.split('/')
+              host_ip=ip_parts[0]
+              if '127.0.0.1' in host_ip:
+                 continue
+              ip_addresses.append(host_ip)
+
+        return ip_addresses
+ 
+    @staticmethod
     def get_connector_properties(root_helper, *args, **kwargs):
         """The LightOS connector properties."""
         props = {}
@@ -71,7 +88,9 @@ class LightOSConnector(base.BaseLinuxConnector):
                                              execute=kwargs.get('execute'))
         hostnqn = utils.get_host_nqn()
         found_dsc = lightos_connector.find_dsc()
-
+        host_ips = lightos_connector.get_ip_addresses()
+        LOG.info('Host current IP(s) are ',host_ips)
+        
         if not found_dsc:
             LOG.debug('LIGHTOS: did not find dsc, continuing anyway.')
 
@@ -80,6 +99,7 @@ class LightOSConnector(base.BaseLinuxConnector):
                       hostnqn, found_dsc)
             props['nqn'] = hostnqn
             props['found_dsc'] = found_dsc
+            props['host_ips'] = host_ips
         else:
             LOG.debug('LIGHTOS: no hostnqn found.')
 
