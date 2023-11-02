@@ -31,6 +31,8 @@ from os_brick.initiator.connectors import base
 from os_brick.privileged import lightos as priv_lightos
 from os_brick import utils
 import subprocess
+from netifaces import interfaces, ifaddresses, AF_INET, AF_INET6
+from oslo_utils import netutils
 
 DEVICE_SCAN_ATTEMPTS_DEFAULT = 5
 DISCOVERY_CLIENT_PORT = 6060
@@ -64,20 +66,39 @@ class LightOSConnector(base.BaseLinuxConnector):
 
     @staticmethod
     def get_ip_addresses():
-        ip_addresses = []
-        result = subprocess.check_output(['ip', 'addr']).decode('utf-8')
-        lines = result.split('\n')
-        for line in lines:
-          if 'inet ' in line:
-              parts = line.split()
-              ip_parts = parts[1]
-              ip_parts = ip_parts.split('/')
-              host_ip=ip_parts[0]
-              if '127.0.0.1' in host_ip:
-                 continue
-              ip_addresses.append(host_ip)
+        """
+        Find all IPs for the host machine, return list of IP addresses.
+        """
+        loop_back_ips=['127.0.0.1','0:0:0:0:0:0:0:1', '::1']
+        ips = []
+        is_ipv6_enabled = netutils.is_ipv6_enabled()
+                          
+        ifaces = interfaces()
+        for iface in ifaces:
+            addresses = ifaddresses(iface)
+            
+            for address_family in (AF_INET, AF_INET6):
+                family_addresses = addresses.get(address_family)
 
-        return ip_addresses
+                if not family_addresses:
+                   continue
+                
+                for address in family_addresses:
+                    ip = address['addr']
+                    if ip in loop_back_ips:
+                       continue
+                                        
+                    if is_ipv6_enabled and netutils.is_valid_ipv6(ip):
+                       parts = ip.split("%")
+                       ip = parts[0]
+                       ips.append(ip)
+
+                    elif netutils.is_valid_ipv4(ip):
+                         ips.append(ip)
+                    else:
+                        LOG.info('Not a usable ip address  %s', ip)          
+                     
+        return ips 
  
     @staticmethod
     def get_connector_properties(root_helper, *args, **kwargs):
