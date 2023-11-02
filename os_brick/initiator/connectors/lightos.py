@@ -110,7 +110,7 @@ class LightOSConnector(base.BaseLinuxConnector):
         hostnqn = utils.get_host_nqn()
         found_dsc = lightos_connector.find_dsc()
         host_ips = lightos_connector.get_ip_addresses()
-        LOG.info('Host current IP(s) are ',host_ips)
+        LOG.info('Current host hostNQN %s and IP(s) are %s ', hostnqn, host_ips)
         
         if not found_dsc:
             LOG.debug('LIGHTOS: did not find dsc, continuing anyway.')
