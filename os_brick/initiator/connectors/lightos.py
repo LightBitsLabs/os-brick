@@ -78,7 +78,7 @@ class LightOSConnector(base.BaseLinuxConnector):
             addresses = ifaddresses(iface)
             
             for address_family in (AF_INET, AF_INET6):
-                family_addresses = addresses.get(address_family)
+                family_addresses = addresses.get(address_family,[])
 
                 if not family_addresses:
                    continue
@@ -95,8 +95,6 @@ class LightOSConnector(base.BaseLinuxConnector):
 
                     elif netutils.is_valid_ipv4(ip):
                          ips.append(ip)
-                    else:
-                        LOG.info('Not a usable ip address  %s', ip)          
                      
         return ips 
  
