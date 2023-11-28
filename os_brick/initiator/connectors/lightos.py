@@ -31,7 +31,6 @@ from os_brick.i18n import _
 from os_brick.initiator.connectors import base
 from os_brick.privileged import lightos as priv_lightos
 from os_brick import utils
-import subprocess
 from netifaces import interfaces, ifaddresses, AF_INET, AF_INET6
 from oslo_utils import netutils
 
