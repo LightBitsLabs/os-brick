@@ -26,6 +26,7 @@ from os_brick.tests.initiator import test_connector
 from os_brick import utils
 
 FAKE_NQN = "nqn.fake.qnq"
+FAKE_HOST_IPS = ['10.10.0.1']
 
 FAKE_LIGHTOS_CLUSTER_NODES = {
     "nodes": [
@@ -80,13 +81,16 @@ class LightosConnectorTestCase(test_connector.ConnectorTestCase):
             lightos_nodes=lightos_nodes
         )
 
+    @mock.patch.object(lightos.LightOSConnector, 'get_ip_addresses',
+                       return_value=FAKE_HOST_IPS)
     @mock.patch.object(utils, 'get_host_nqn',
                        return_value=FAKE_NQN)
     @mock.patch.object(lightos.LightOSConnector, 'find_dsc',
                        return_value=True)
-    def test_get_connector_properties(self, mock_nqn, mock_dsc):
+    def test_get_connector_properties(self, mock_nqn, mock_dsc, mock_host_ips):
         props = self.connector.get_connector_properties(None)
-        expected_props = {"nqn": FAKE_NQN, "found_dsc": True}
+        expected_props = {"nqn": FAKE_NQN, "found_dsc": True,
+                          "host_ips": FAKE_HOST_IPS}
         self.assertEqual(expected_props, props)
 
     @mock.patch.object(lightos.http.client.HTTPConnection, "request",
