@@ -32,14 +32,34 @@ from os_brick.i18n import _
 from os_brick.initiator.connectors import base
 from os_brick.privileged import lightos as priv_lightos
 from os_brick import utils
+from oslo_config import cfg
 
 
 DEVICE_SCAN_ATTEMPTS_DEFAULT = 5
 DISCOVERY_CLIENT_PORT = 6060
+DISCOVERY_CLIENT_ADDRESS = "localhost"
+DISCOVERY_CLIENT_DIR_PATH = '/etc/discovery-client/discovery.d/'
 LOG = logging.getLogger(__name__)
 
 nvmec_pattern = ".*nvme[0-9]+[cp][0-9]+.*"
 nvmec_match = re.compile(nvmec_pattern)
+
+_opts = [
+    cfg.StrOpt('discovery_client_address',
+               default=DISCOVERY_CLIENT_ADDRESS,
+               help='Address of the LightOS discovery client. Default is '
+                    f'{DISCOVERY_CLIENT_ADDRESS}.'),
+    cfg.IntOpt('discovery_client_port',
+               default=DISCOVERY_CLIENT_PORT,
+               help='Port of the LightOS discovery client. Default is '
+                    f'{DISCOVERY_CLIENT_PORT}.'),
+    cfg.StrOpt('discovery_client_dir_path',
+               default=DISCOVERY_CLIENT_DIR_PATH,
+               help='Directory path for the LightOS discovery client files. '
+                    f'Default is {DISCOVERY_CLIENT_DIR_PATH}.')
+]
+
+cfg.CONF.register_opts(_opts, group='os_brick')
 
 
 class LightOSConnector(base.BaseLinuxConnector):
@@ -62,7 +82,7 @@ class LightOSConnector(base.BaseLinuxConnector):
             device_scan_attempts=device_scan_attempts,
             *args, **kwargs)
         self.message_queue = message_queue
-        self.DISCOVERY_DIR_PATH = '/etc/discovery-client/discovery.d/'
+        self.DISCOVERY_DIR_PATH = cfg.CONF.os_brick.discovery_client_dir_path
 
     @staticmethod
     def get_ip_addresses():
@@ -126,7 +146,8 @@ class LightOSConnector(base.BaseLinuxConnector):
         return os.path.join(self.DISCOVERY_DIR_PATH, "%s.conf" % uuid)
 
     def find_dsc(self):
-        conn = http.client.HTTPConnection("localhost", DISCOVERY_CLIENT_PORT)
+        conn = http.client.HTTPConnection(cfg.CONF.os_brick.discovery_client_address,
+                                           cfg.CONF.os_brick.discovery_client_port)
         try:
             conn.request("HEAD", "/metrics")
             resp = conn.getresponse()
