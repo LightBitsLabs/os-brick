@@ -13,7 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import shutil
+from oslo_concurrency import processutils
+
 
 from oslo_utils import fileutils
 
@@ -27,4 +28,4 @@ def delete_dsc_file(file_name):
 
 @os_brick.privileged.default.entrypoint
 def move_dsc_file(src, dst):
-    return shutil.move(src, dst)
+    return processutils.execute("mv", src, dst)
